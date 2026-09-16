@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playset - Slack</title>
+  <meta name="description" content="A pixel-faithful recreation of the Slack desktop application shell as a static web app.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%234A154B'/%3E%3Cpath fill='%23fff' d='M12 8a2 2 0 1 1 0 4h-2v-2a2 2 0 0 1 2-2zm0 5h2v5a2 2 0 1 1-2-2v-3zm-1 7a2 2 0 1 1-4 0h4zm-3-1h-1a2 2 0 1 1 2-2v2zm12-7a2 2 0 1 1 4 0v2h-2a2 2 0 0 1-2-2zm-1 1h-5a2 2 0 1 1 2-2v2h3zm1 7a2 2 0 1 1 0 4h-2v-2a2 2 0 0 1 2-2zm-1-1v-5a2 2 0 1 1 2 2h-2v3z'/%3E%3C/svg%3E">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Lato:ital,wght@0,400;0,700;0,900;1,400;1,700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script>
+    /* Apply theme before first paint to avoid a flash. */
+    (function () {
+      try {
+        var t = localStorage.getItem('ss.theme');
+        if (!t) t = (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) ? 'dark' : 'light';
+        document.documentElement.setAttribute('data-theme', t);
+        var sb = localStorage.getItem('ss.sidebarTheme');
+        if (sb && sb !== 'default') document.documentElement.setAttribute('data-sidebar', sb);
+        var w = localStorage.getItem('ss.sidebarWidth');
+        if (w) document.documentElement.style.setProperty('--sidebar-w', w + 'px');
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <div id="app" class="app">
+    <header class="topbar" role="banner" id="topbar">
+      <div></div>
+      <div class="top-nav">
+        <button class="top-btn" id="nav-back" data-tip="Back" aria-label="Go back" disabled><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M12.5 4.5 7 10l5.5 5.5"/></svg></button>
+        <button class="top-btn" id="nav-fwd" data-tip="Forward" aria-label="Go forward" disabled><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><path d="M7.5 4.5 13 10l-5.5 5.5"/></svg></button>
+        <button class="top-btn" id="nav-history" data-tip="History" aria-label="History"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7"/><path d="M10 6v4l2.5 2.5"/></svg></button>
+      </div>
+      <div class="top-search" id="top-search" role="search">
+        <svg width="16" height="16" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="9" cy="9" r="5.5"/><path d="m13.5 13.5 3.5 3.5"/></svg>
+        <input id="search-input" type="text" placeholder="Search Playset" aria-label="Search Playset" autocomplete="off" spellcheck="false">
+        <span class="kbd-hint" id="search-kbd-hint"></span>
+        <button class="search-clear" id="search-clear" aria-label="Clear search"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="m5 5 10 10M15 5 5 15"/></svg></button>
+      </div>
+      <div></div>
+      <div class="top-right">
+        <button class="top-btn" id="help-btn" data-tip="Help" aria-label="Help"><svg width="20" height="20" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round"><circle cx="10" cy="10" r="7.5"/><path d="M7.8 7.8a2.3 2.3 0 0 1 4.4.7c0 1.5-2.2 1.8-2.2 3.2"/><circle cx="10" cy="14.4" r=".6" fill="currentColor"/></svg></button>
+        <button class="avatar-btn" id="me-avatar-btn" aria-label="Your profile and status" aria-haspopup="true"></button>
+      </div>
+    </header>
+    <div class="workspace">
+      <nav class="rail" id="rail" aria-label="Workspaces and navigation"></nav>
+      <div class="frame" id="frame">
+        <aside class="sidebar" id="sidebar" aria-label="Channels and direct messages"></aside>
+        <div class="sidebar-resizer" id="sidebar-resizer" role="separator" aria-orientation="vertical" aria-label="Resize sidebar" tabindex="0"></div>
+        <div class="sidebar-scrim" id="sidebar-scrim"></div>
+        <main class="main" id="main" aria-label="Conversation"></main>
+        <aside class="rpanel" id="rpanel" aria-label="Details"></aside>
+      </div>
+    </div>
+  </div>
+  <div id="layer"></div>
+  <div class="toast-wrap" id="toasts"></div>
+  <div id="live" class="sr-only" aria-live="polite" aria-atomic="true"></div>
+  <script src="data.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
