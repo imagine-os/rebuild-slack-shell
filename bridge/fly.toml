@@ -1,0 +1,36 @@
+# Fly.io config for the Slack Shell bridge.
+#   fly launch --no-deploy --copy-config      (first time; pick a name/region)
+#   fly volumes create bridge_data --size 1  (only needed with token rotation)
+#   fly secrets set SLACK_BOT_TOKEN=... SLACK_APP_TOKEN=... BRIDGE_SHARED_SECRET=... BRIDGE_ALLOWED_ORIGINS=https://imagine-os.github.io
+#   fly deploy
+app = "slack-shell-bridge"
+primary_region = "sjc"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  BRIDGE_PORT = "8787"
+  SLACK_TOKEN_STORE = "/data/.tokens.json"
+
+[http_service]
+  internal_port = 8787
+  force_https = true
+  auto_stop_machines = false   # Socket Mode must stay connected to receive events
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/health"
+
+[mounts]
+  source = "bridge_data"
+  destination = "/data"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "256mb"

@@ -1,0 +1,66 @@
+# Slack app manifest for the Slack Shell bridge.
+# Paste into api.slack.com/apps -> "Create New App" -> "From an app manifest" (new app),
+# or into an existing app's "App Manifest" page to apply these settings to it.
+_metadata:
+  major_version: 1
+  minor_version: 1
+display_information:
+  name: Slack Shell Bridge
+  description: Lets the Slack Shell web app read and write this workspace through a private bridge service.
+  background_color: "#4A154B"
+features:
+  bot_user:
+    display_name: Slack Shell
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:history
+      - channels:read
+      - channels:join
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
+      - users:read
+      - users:read.email
+      - chat:write
+      - chat:write.customize
+      - reactions:read
+      - reactions:write
+      - files:read
+      - pins:read
+      - team:read
+      - emoji:read
+    user:
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - mpim:history
+      - mpim:read
+      - chat:write
+      - reactions:write
+      - users:read
+      - search:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+      - reaction_added
+      - reaction_removed
+      - channel_created
+      - member_joined_channel
+      - user_change
+      - team_join
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
