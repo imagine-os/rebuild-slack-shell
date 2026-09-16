@@ -4,7 +4,7 @@ on:
     branches: [main]
   workflow_dispatch:
 permissions:
-  contents: read
+  contents: write
   pages: write
   id-token: write
 concurrency:
@@ -13,16 +13,25 @@ concurrency:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/configure-pages@v5
+      # Publish the site root to the gh-pages branch. Creating a gh-pages
+      # branch enables GitHub Pages for a public repo without needing the
+      # Pages REST API (which the Actions token cannot call here).
+      - uses: peaceiris/actions-gh-pages@v4
         with:
-          enablement: true
-      - uses: actions/upload-pages-artifact@v3
-        with:
-          path: .
-      - id: deployment
-        uses: actions/deploy-pages@v4
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: .
+          publish_branch: gh-pages
+          force_orphan: true
+          exclude_assets: '.github,node_modules'
+      - name: Report Pages status
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          sleep 20
+          if out=$(gh api "repos/${GITHUB_REPOSITORY}/pages" 2>&1); then
+            echo "::notice title=Pages::$(echo "$out" | tr -d '\n' | head -c 800)"
+          else
+            echo "::warning title=Pages status::$(echo "$out" | tr -d '\n' | head -c 800)"
+          fi
