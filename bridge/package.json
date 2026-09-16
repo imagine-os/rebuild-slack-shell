@@ -1,0 +1,19 @@
+{
+  "name": "slack-shell-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Small bridge service that lets the static Slack Shell app read and write a real Slack workspace. Holds the Slack tokens, connects to Slack via Socket Mode and fans events out to browsers over WebSocket.",
+  "type": "module",
+  "engines": { "node": ">=20" },
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "check": "node --check src/index.js && node --check src/slack.js && node --check src/events.js && node --check src/tokens.js && node --check src/config.js"
+  },
+  "dependencies": {
+    "@slack/bolt": "^4.2.0",
+    "@slack/web-api": "^7.8.0",
+    "ws": "^8.18.0"
+  }
+}
