@@ -3,6 +3,8 @@
 A pixel-faithful, self-contained recreation of the Slack desktop application shell (2024–2026 design) as a static web app. No frameworks, no build step, no runtime dependencies. Everything — the workspace "Playset", 15 people, 10 channels, 8 DMs, ~200 seeded messages with threads, reactions, files, polls and app posts — is generated client-side from `data.js`, with timestamps relative to *now* so it always reads as current.
 
 > This is a UI recreation for design/engineering reference. Nothing is sent anywhere; all state lives in memory and `localStorage`.
+>
+> **Live mode (optional):** the shell can also run on a real Slack workspace through a small bridge service that holds the Slack tokens. Nothing changes by default; see [Live data](#live-data-optional) and [`docs/LIVE_DATA.md`](docs/LIVE_DATA.md).
 
 ## Run it
 
@@ -26,6 +28,9 @@ A single-file bundle with CSS, JS and data inlined lives at `dist/slack-shell.ht
 | `styles.css` | All styles. Design tokens on `:root`, dark theme under `[data-theme="dark"]`, sidebar themes under `[data-sidebar]`, responsive breakpoints at 1200 / 1100 / 900 / 640 px. |
 | `app.js` | The application (single IIFE, vanilla JS): rendering, markdown, composer, pickers, modals, keyboard shortcuts, simulation. |
 | `data.js` | Seeded workspace: users, channels, DMs, messages, threads, reactions, files, canvases, workflows, emoji table, slash commands. |
+| `provider.js` | Data-provider layer: `SeededProvider` (default, wraps `data.js`), `LiveProvider` (HTTP + WebSocket client for the bridge) and the adapter that normalizes Slack API shapes into the shell's model. |
+| `bridge/` | Optional Node 20 bridge service (Slack Socket Mode + Web API on one side, REST + WebSocket for the browser on the other), Slack app manifest, Dockerfile, `fly.toml`. See [`bridge/README.md`](bridge/README.md). |
+| `docs/LIVE_DATA.md` | How seeded vs live mode works and why the token cannot live in the static page. |
 | `build-single.js` | Node script that inlines everything into `dist/slack-shell.html`. |
 
 ## Features
@@ -66,6 +71,19 @@ A single-file bundle with CSS, JS and data inlined lives at `dist/slack-shell.ht
 **Responsive** — ≥1200 full layout; 900–1200 compact rail; <900 sidebar becomes a slide-over with hamburger; <640 stacked mobile view (list *or* conversation) with a bottom tab bar; thread panel becomes a full overlay under 1100.
 
 **Accessibility** — landmarks and roles, aria-labels on icon buttons, visible focus rings, focus trap and Escape in modals, arrow-key navigation in menus/pickers/switcher, `aria-live` announcements for new messages, `prefers-reduced-motion` respected (and a manual toggle).
+
+## Live data (optional)
+
+Out of the box the app is **seeded**: everything comes from `data.js` and stays in the browser. It can also be switched to **live** mode, where it reads and writes a real Slack workspace through the bridge in [`bridge/`](bridge/):
+
+```
+static shell (GitHub Pages)  <-- HTTPS + WebSocket -->  bridge (holds Slack tokens)  <-- Web API + Socket Mode -->  Slack
+```
+
+- Switch modes from the workspace-name menu → **Data source** (or the status pill at the bottom of the sidebar), or with `?live=1&bridge=https://your-bridge` in the URL. The choice, bridge URL and shared secret are stored in `localStorage` (`slackShellMode`, `slackShellBridge`, `slackShellSecret`).
+- The status pill shows **Seeded demo data / Connecting / Live · workspace / Bridge error**.
+- In live mode messages, edits, deletes, reactions and read-marks go to Slack through the bridge; new messages, edits, reactions, channel and member changes arrive over the WebSocket. The teammate simulation is off.
+- Setup, scopes, deployment and token rotation: [`bridge/README.md`](bridge/README.md). Architecture in plain language: [`docs/LIVE_DATA.md`](docs/LIVE_DATA.md).
 
 ## Keyboard shortcuts
 

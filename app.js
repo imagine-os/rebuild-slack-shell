@@ -2,6 +2,10 @@
 (function () {
   'use strict';
   const D = window.SLACK_DATA;
+  /* Data provider (provider.js): SeededProvider by default, LiveProvider with ?live=1 or localStorage.slackShellMode="live". */
+  const PROVIDERS = window.SlackShellProviders || null;
+  const provider = PROVIDERS ? PROVIDERS.create(D) : { kind: 'seeded', simulated: true, status: 'seeded', connect() {}, onEvent() {}, onStatus() {}, loadWorkspace: async () => null, loadHistory: async (id) => ({ messages: D.messages[id] || [] }), loadThread: async () => [], sendMessage: async () => ({}), editMessage: async () => ({}), deleteMessage: async () => ({}), addReaction: async () => ({}), removeReaction: async () => ({}), markRead: async () => ({}) };
+  const LIVE = provider.kind === 'live';
   const $ = (sel, root) => (root || document).querySelector(sel);
   const $$ = (sel, root) => Array.from((root || document).querySelectorAll(sel));
   const IS_MAC = /Mac|iPhone|iPad/.test(navigator.platform) || /Macintosh/.test(navigator.userAgent);
@@ -63,7 +67,7 @@
      Data helpers
   ------------------------------------------------------------------ */
   const me = () => D.users[D.me];
-  const user = (id) => D.users[id] || { id, name: 'Unknown', initials: '?', color: '#616061', presence: 'none' };
+  const user = (id) => D.users[id === 'me' ? D.me : id] || { id, name: 'Unknown', initials: '?', color: '#616061', presence: 'none' };
   const convs = () => D.channels.concat(D.dms);
   const conv = (id) => convs().find((c) => c.id === id);
   const msgs = (convId) => (D.messages[convId] || (D.messages[convId] = []));
@@ -90,7 +94,7 @@
     for (const cid of Object.keys(D.messages)) for (const m of D.messages[cid]) { out.push({ m, cid }); m.replies.forEach((r) => out.push({ m: r, cid, parent: m })); }
     return out;
   };
-  const mentionsMe = (m) => (m.text || '').includes('<@me>');
+  const mentionsMe = (m) => (m.text || '').includes('<@me>') || (D.me !== 'me' && (m.text || '').includes('<@' + D.me + '>'));
   const unreadOf = (cid) => msgs(cid).filter((m) => m.ts > (state.lastRead[cid] || 0) && m.user !== D.me);
   const unreadCount = (cid) => unreadOf(cid).length;
   const mentionCount = (cid) => unreadOf(cid).filter(mentionsMe).length;
@@ -257,7 +261,7 @@
     const p = presenceOf(u);
     const dot = opts.presence && !u.bot ? '<span class="presence-dot ' + p + '" aria-hidden="true"></span>' : '';
     const click = opts.click === false ? '' : ' data-act="profile" data-user="' + u.id + '"';
-    return '<span class="avatar sz-' + (size || 36) + '" style="background:' + u.color + '"' + click + ' role="img" aria-label="' + attr(u.name) + '">' + esc(u.initials) + dot + '</span>';
+    return '<span class="avatar sz-' + (size || 36) + '" style="background:' + u.color + '"' + click + ' role="img" aria-label="' + attr(u.name) + '">' + (u.image ? '<img src="' + attr(u.image) + '" alt="" loading="lazy">' : esc(u.initials)) + dot + '</span>';
   }
 
   /* ------------------------------------------------------------------
@@ -271,8 +275,8 @@
     s = s.replace(/(^|[\s(])~([^~\n]+?)~(?=$|[\s.,!?;:)])/g, '$1<del>$2</del>');
     s = s.replace(/&lt;(https?:\/\/[^|&\s]+)\|([^&]+?)&gt;/g, (m, url, label) => '<a href="' + url + '" target="_blank" rel="noopener">' + label + '</a>');
     s = s.replace(/(^|[^"'>])(https?:\/\/[^\s<]+[^\s<.,;:!?)])/g, (m, pre, url) => pre + '<a href="' + url + '" target="_blank" rel="noopener">' + url + '</a>');
-    s = s.replace(/&lt;@([a-z0-9_]+)&gt;/g, (m, id) => { const u = user(id); return '<span class="mention' + (id === D.me ? ' me' : '') + '" data-act="profile" data-user="' + id + '">@' + esc(u.name) + '</span>'; });
-    s = s.replace(/&lt;#([a-z0-9_]+)&gt;/g, (m, id) => { const c = conv(id); return c ? '<span class="ch-link" data-act="open" data-conv="' + id + '">#' + esc(c.name) + '</span>' : m; });
+    s = s.replace(/&lt;@([A-Za-z0-9_]+)&gt;/g, (m, id) => { const u = user(id); return '<span class="mention' + (id === D.me ? ' me' : '') + '" data-act="profile" data-user="' + id + '">@' + esc(u.name) + '</span>'; });
+    s = s.replace(/&lt;#([A-Za-z0-9_]+)&gt;/g, (m, id) => { const c = conv(id); return c ? '<span class="ch-link" data-act="open" data-conv="' + id + '">#' + esc(c.name) + '</span>' : m; });
     s = s.replace(/(^|[^\w>])@(justin|me)\b/gi, (m, pre) => pre + '<span class="mention me" data-act="profile" data-user="me">@' + esc(me().name) + '</span>');
     s = s.replace(/(^|[^\w>])@([a-z][a-z0-9._-]*)/gi, (m, pre, h) => { const u = Object.values(D.users).find((x) => x.handle === h.toLowerCase()); return u ? pre + '<span class="mention" data-act="profile" data-user="' + u.id + '">@' + esc(u.name) + '</span>' : m; });
     s = s.replace(/(^|[^\w>&])#([a-z0-9][a-z0-9_-]*)/g, (m, pre, n) => { const c = D.channels.find((x) => x.name === n); return c ? pre + '<span class="ch-link" data-act="open" data-conv="' + c.id + '">#' + esc(c.name) + '</span>' : m; });
@@ -307,7 +311,7 @@
     if (!stripped && (html.match(/class="emoji"/g) || []).length <= 3 && !opts.noBig) html = html.replace(/class="emoji"/g, 'class="emoji big"');
     return html;
   }
-  const plainText = (text) => (text || '').replace(/<@([a-z0-9_]+)>/g, (m, id) => '@' + user(id).name).replace(/<#([a-z0-9_]+)>/g, (m, id) => { const c = conv(id); return c ? '#' + c.name : m; }).replace(/:([a-z0-9_+\-]+):/g, (m, n) => emojiOf(n) || m).replace(/[*_~`>]/g, '');
+  const plainText = (text) => (text || '').replace(/<@([A-Za-z0-9_]+)>/g, (m, id) => '@' + user(id).name).replace(/<#([A-Za-z0-9_]+)>/g, (m, id) => { const c = conv(id); return c ? '#' + c.name : m; }).replace(/:([a-z0-9_+\-]+):/g, (m, n) => emojiOf(n) || m).replace(/[*_~`>]/g, '');
 
   /* ------------------------------------------------------------------
      UI primitives: tooltip, popover, modal, toast, live region
@@ -522,6 +526,7 @@
     else if (MORE_VIEWS.includes(state.view)) html = renderMoreSidebar();
     else html = renderHomeSidebar();
     html += renderHuddleChip();
+    html += renderConnStatusHtml();
     html += '<div class="sb-mobile-nav" role="tablist">' + RAIL_ITEMS.slice(0, 4).map((r) => '<button class="' + (state.view === r.id ? 'active' : '') + '" data-act="view" data-view="' + r.id + '">' + I(r.icon, 20) + esc(r.label) + '</button>').join('') + '</div>';
     sb.innerHTML = html;
     sb.classList.toggle('open', state.sidebarOpen);
@@ -541,7 +546,8 @@
     if (starred.length) body += sbSection('starred', 'Starred', starred.map((c) => sbItem(c)).join(''));
     body += sbSection('channels', 'Channels', channels.map((c) => sbItem(c)).join('') + '<li><button class="sb-item ghost" data-act="add-channel"><span class="sb-item-ico">' + I('plus', 14) + '</span><span class="sb-item-name">Add channels</span></button></li>', { add: 'add-channel', addTip: 'Add channels' });
     body += sbSection('dms', 'Direct messages', dms.map((c) => sbItem(c, { closable: true })).join('') + '<li><button class="sb-item ghost" data-act="add-teammates"><span class="sb-item-ico">' + I('plus', 14) + '</span><span class="sb-item-name">Add teammates</span></button></li>', { add: 'new-message', addTip: 'Open a direct message' });
-    body += sbSection('apps', 'Apps', ['b_github', 'b_polly', 'b_slackbot'].map((b) => '<li><button class="sb-item" data-act="open-app" data-user="' + b + '">' + avatar(user(b), 20, { click: false }) + '<span class="sb-item-name">' + esc(user(b).name) + '</span></button></li>').join('') + '<li><button class="sb-item ghost" data-act="add-app"><span class="sb-item-ico">' + I('plus', 14) + '</span><span class="sb-item-name">Add apps</span></button></li>', { add: 'add-app', addTip: 'Add apps' });
+    const appIds = ['b_github', 'b_polly', 'b_slackbot'].filter((b) => D.users[b]); if (!appIds.length) Object.values(D.users).filter((u) => u.bot).slice(0, 3).forEach((u) => appIds.push(u.id));
+    body += sbSection('apps', 'Apps', appIds.map((b) => '<li><button class="sb-item" data-act="open-app" data-user="' + b + '">' + avatar(user(b), 20, { click: false }) + '<span class="sb-item-name">' + esc(user(b).name) + '</span></button></li>').join('') + '<li><button class="sb-item ghost" data-act="add-app"><span class="sb-item-ico">' + I('plus', 14) + '</span><span class="sb-item-name">Add apps</span></button></li>', { add: 'add-app', addTip: 'Add apps' });
     return sidebarHeader(D.workspace.name) + '<div class="sb-body scroll" role="navigation">' + body + '</div>';
   }
   function renderDMSidebar() {
@@ -620,7 +626,7 @@
     const main = $('#main');
     if (MORE_VIEWS.includes(state.view)) { main.innerHTML = renderPage(state.view); return; }
     const c = conv(state.conv);
-    if (!c) { main.innerHTML = '<div class="empty-state"><h3>Select a conversation</h3></div>'; return; }
+    if (!c) { main.innerHTML = '<div class="empty-state">' + renderEmptyState() + '</div>'; return; }
     main.innerHTML = renderChannelHeader(c) + '<div class="msg-scroll"><button class="jump-chip" id="jump-chip" data-act="jump-present">Jump to present ' + I('arrowDown', 14) + '</button><div class="msg-list scroll" id="msg-list" role="log" aria-label="Messages"></div><div class="typing" id="typing" aria-live="polite"></div></div>' + renderComposer(c, 'main');
     if (state.loading) { $('#msg-list').innerHTML = renderSkeleton(); }
     else refreshMessages(true);
@@ -678,7 +684,7 @@
     const text = isSys ? '<div class="msg-text">' + esc(m.text) + '</div>' : (m.text ? '<div class="msg-text-wrap"><div class="msg-text">' + renderText(m.text) + (m.edited ? '<span class="edited">(edited)</span>' : '') + '</div></div>' : '');
     const editor = state.editing === m.id ? '<div class="msg-editor" id="msg-editor"><div class="composer"><div class="fmt-bar">' + fmtButtons() + '</div><textarea rows="1" aria-label="Edit message">' + esc(m.text) + '</textarea><div class="comp-bottom"><button class="icon-btn" data-act="emoji-composer" data-tip="Emoji">' + I('emoji', 18) + '</button><div class="comp-right"><button class="btn outline sm" data-act="edit-cancel">Cancel</button><button class="btn primary sm" data-act="edit-save" data-msg="' + m.id + '">Save</button></div></div></div></div>' : '';
     const reactions = renderReactions(m);
-    const threadFoot = !ctx.inThread && m.replies.length ? renderThreadFoot(m, ctx.convId) : '';
+    const threadFoot = !ctx.inThread && (m.replies.length || m.replyCount) ? renderThreadFoot(m, ctx.convId) : '';
     const attachments = renderAttachments(m);
     const actions = isSys ? '' : '<div class="msg-actions" role="toolbar" aria-label="Message actions">' +
       state.quickReacts.map((e) => '<button class="act quick" data-act="react" data-msg="' + m.id + '" data-emoji="' + e + '" data-tip="' + (emojiName(e) ? ':' + emojiName(e) + ':' : 'React') + '" aria-label="React with ' + e + '">' + e + '</button>').join('') +
@@ -687,7 +693,7 @@
       '<button class="act" data-act="forward" data-msg="' + m.id + '" data-tip="Forward message…" aria-label="Forward message">' + I('forward', 18) + '</button>' +
       '<button class="act' + (m.saved ? ' on' : '') + '" data-act="save" data-msg="' + m.id + '" data-tip="' + (m.saved ? 'Remove from Later' : 'Save for later') + '" aria-label="Save for later" aria-pressed="' + !!m.saved + '">' + I(m.saved ? 'bookmarkFill' : 'bookmark', 18) + '</button>' +
       '<button class="act" data-act="msg-more" data-msg="' + m.id + '" data-conv="' + ctx.convId + '" data-tip="More actions" aria-label="More actions">' + I('moreV', 18) + '</button></div>';
-    return '<div class="msg' + (cont ? ' cont' : '') + (isSys ? ' system' : '') + (own ? ' own' : '') + (ctx.highlight === m.id ? ' highlight' : '') + '" id="msg-' + m.id + '" data-msg="' + m.id + '" role="article" tabindex="-1"><div class="msg-gutter">' + gutter + '</div><div class="msg-body">' + flags + head + (editor || text) + attachments + reactions + threadFoot + '</div>' + actions + '</div>';
+    return '<div class="msg' + (cont ? ' cont' : '') + (isSys ? ' system' : '') + (own ? ' own' : '') + (m.pending ? ' pending' : '') + (ctx.highlight === m.id ? ' highlight' : '') + '" id="msg-' + m.id + '" data-msg="' + m.id + '" role="article" tabindex="-1"><div class="msg-gutter">' + gutter + '</div><div class="msg-body">' + flags + head + (editor || text) + attachments + reactions + threadFoot + '</div>' + actions + '</div>';
   }
   function renderReactions(m) {
     const rs = (m.reactions || []).filter((r) => r.users.length);
@@ -696,8 +702,11 @@
   }
   function renderThreadFoot(m, convId) {
     const who = []; m.replies.forEach((r) => { if (!who.includes(r.user)) who.push(r.user); });
+    if (!who.length) (m.replyUsers || []).forEach((u) => { if (!who.includes(u)) who.push(u); });
     const last = m.replies[m.replies.length - 1];
-    return '<button class="thread-foot" data-act="open-thread" data-msg="' + m.id + '" data-conv="' + convId + '"><span class="avatar-stack">' + who.slice(0, 3).map((u) => avatar(user(u), 24, { click: false })).join('') + '</span><span class="replies-count">' + m.replies.length + ' repl' + (m.replies.length === 1 ? 'y' : 'ies') + '</span><span class="last-reply">Last reply ' + relTime(last.ts) + '</span><span class="view-thread">View thread ' + I('chevRight', 14) + '</span></button>';
+    const count = m.replies.length || m.replyCount || 0;
+    const lastTs = last ? last.ts : m.latestReply;
+    return '<button class="thread-foot" data-act="open-thread" data-msg="' + m.id + '" data-conv="' + convId + '"><span class="avatar-stack">' + who.slice(0, 3).map((u) => avatar(user(u), 24, { click: false })).join('') + '</span><span class="replies-count">' + count + ' repl' + (count === 1 ? 'y' : 'ies') + '</span>' + (lastTs ? '<span class="last-reply">Last reply ' + relTime(lastTs) + '</span>' : '') + '<span class="view-thread">View thread ' + I('chevRight', 14) + '</span></button>';
   }
   function fileKind(a) { const k = (a.kind || (a.name || '').split('.').pop() || '').toLowerCase(); return ['pdf', 'xlsx', 'docx', 'zip'].includes(k) ? k : 'default'; }
   function renderAttachments(m) {
@@ -797,7 +806,7 @@
   /* ------------------------------------------------------------------
      Right panel
   ------------------------------------------------------------------ */
-  function openPanel(p) { state.rpanel = p; renderRPanel(); }
+  function openPanel(p) { state.rpanel = p; if (LIVE && p && p.type === 'thread') ensureThread(p.convId || state.conv, p.msgId); renderRPanel(); }
   function closePanel() { state.rpanel = null; renderRPanel(); }
   const rpHead = (title, sub, extra) => '<div class="rp-head"><div class="rp-title"><span>' + title + '</span>' + (sub ? '<span class="rp-sub">' + sub + '</span>' : '') + '</div>' + (extra || '') + '<button class="icon-btn" data-act="close-panel" aria-label="Close panel" data-tip="Close">' + I('close', 20) + '</button></div>';
   function renderRPanel() {
@@ -874,7 +883,7 @@
   function renderSearchPanel(q) {
     const res = searchMessages(q); const f = parseQuery(q);
     const chans = D.channels.slice(0, 6);
-    const people = ['me', 'u1', 'u2', 'u3', 'u4'];
+    const people = ['me', 'u1', 'u2', 'u3', 'u4'].filter((id) => D.users[id === 'me' ? D.me : id]).concat(Object.keys(D.users).filter((id) => id !== D.me && !D.users[id].bot).slice(0, 4)).filter((id, i, a) => a.indexOf(id) === i).slice(0, 5);
     const chip = (label, on, act, val) => '<button class="chip' + (on ? ' on' : '') + '" data-act="' + act + '" data-val="' + attr(val) + '">' + esc(label) + (on ? I('close', 12) : '') + '</button>';
     return rpHead('Search results', res.length ? res.length + ' result' + (res.length === 1 ? '' : 's') : '') + '<div class="rp-search-bar"><div class="field">' + I('search', 16) + '<input id="rp-search-input" value="' + attr(q) + '" placeholder="Search messages, files, and more" aria-label="Search"></div><div class="chips">' + (f.in ? chip('in: #' + f.in, true, 'search-chip', 'in:') : chip('In: ' + (conv(state.conv).type === 'channel' ? '#' + conv(state.conv).name : 'this conversation'), false, 'search-chip', 'in:' + (conv(state.conv).type === 'channel' ? conv(state.conv).name : convName(conv(state.conv)).split(' ')[0]))) + (f.from ? chip('from: @' + f.from, true, 'search-chip', 'from:') : chip('From: me', false, 'search-chip', 'from:me')) + '<button class="chip" data-act="search-more-filters">' + I('filter', 12) + 'More filters</button></div></div><div class="rp-body scroll">' + (res.length ? res.map(({ m, cid, parent }) => { const c = conv(cid); return '<button class="search-result" data-act="jump" data-conv="' + cid + '" data-msg="' + m.id + '" data-parent="' + (parent ? parent.id : '') + '"><div class="sr-ctx">' + (c.type === 'channel' ? I(c.private ? 'lock' : 'hash', 12) : I('dms', 12)) + '<b>' + esc(c.type === 'channel' ? c.name : convName(c)) + '</b>' + (parent ? ' · in thread' : '') + ' · ' + fmtShortDate(m.ts) + ' at ' + fmtTime(m.ts) + '</div><div class="sr-body">' + avatar(user(m.user), 28, { click: false }) + '<div class="sr-text"><b>' + esc(user(m.user).name) + '</b> ' + highlight(plainText(m.text || (m.attachments[0] && (m.attachments[0].name || m.attachments[0].title)) || '').slice(0, 220), f.text) + '</div></div></button>'; }).join('') : (q.trim() ? '<div class="empty-state"><div class="es-ico" style="background:var(--bg-2)">' + I('search', 40) + '</div><h3>No results for “' + esc(q) + '”</h3><p>Try a different search or remove a filter. You can use <code>in:#channel</code> and <code>from:@person</code>.</p></div>' : '<div class="empty-state"><div class="es-ico" style="background:var(--bg-2)">' + I('search', 40) + '</div><h3>Search ' + esc(D.workspace.name) + '</h3><p>Find messages, files, channels and people. Narrow results with <code>in:#channel</code> and <code>from:@person</code>.</p><div class="chips" style="justify-content:center;margin-top:12px">' + chans.map((c) => '<button class="chip" data-act="search-chip" data-val="in:' + c.name + '">in:#' + esc(c.name) + '</button>').join('') + people.map((p) => '<button class="chip" data-act="search-chip" data-val="from:' + (user(p).handle || 'me') + '">from:@' + esc(user(p).handle || 'me') + '</button>').join('') + '</div></div>')) + '</div>';
   }
@@ -991,12 +1000,13 @@
   }
   function insertAtCursor(ta, text) { const s = ta.selectionStart, e = ta.selectionEnd; ta.setRangeText(text, s, e, 'end'); ta.dispatchEvent(new Event('input')); ta.focus(); }
   function sendFromComposer(box) {
-    const ta = $('textarea', box); const text = ta.value.replace(/\s+$/, ''); if (!text.trim()) return;
+    const ta = $('textarea', box); let text = ta.value.replace(/\s+$/, ''); if (!text.trim()) return;
     const ctx = box._ctx;
+    if (LIVE && /^\/shrug\b/i.test(text)) { const rest = text.replace(/^\/shrug\s*/i, ''); text = (rest ? rest + ' ' : '') + '¯\\_(ツ)_/¯'; }
     if (text.startsWith('/')) { if (runSlash(text, ctx)) { ta.value = ''; delete state.drafts[box.dataset.draftKey]; store.set('drafts', state.drafts); ta.dispatchEvent(new Event('input')); return; } }
     const also = $('.also-send-cb', box); const alsoSend = also && also.checked;
     const m = { id: uid('m'), user: D.me, ts: Date.now(), text, reactions: [], replies: [], attachments: [] };
-    if (text.toLowerCase().includes('@channel') || Math.random() < 0) m.text = text;
+    if (LIVE) m.pending = true;
     if (ctx.threadId) {
       const f = findMsg(ctx.threadId); if (!f) return;
       f.msg.replies.push(m);
@@ -1004,12 +1014,14 @@
       if (also) also.checked = false;
       renderRPanel(); refreshMessages(alsoSend); refreshSidebar();
       const nb = $('#rpanel .composer textarea'); if (nb) nb.focus();
+      if (LIVE) liveSend(ctx.convId, m, { parent: f.msg, broadcast: alsoSend });
     } else {
       msgs(ctx.convId).push(m);
       state.lastRead[ctx.convId] = m.ts;
       refreshMessages(true); refreshSidebar();
       ta.value = ''; ta.dispatchEvent(new Event('input')); ta.focus();
       simulateReply(ctx.convId, m);
+      if (LIVE) liveSend(ctx.convId, m);
     }
     delete state.drafts[box.dataset.draftKey]; store.set('drafts', state.drafts);
     if (ctx.threadId) { const nb = $('#rpanel .composer textarea'); if (nb) { nb.value = ''; nb.dispatchEvent(new Event('input')); } }
@@ -1245,15 +1257,17 @@
     clearTimeout(loadTimer);
     renderAll();
     const finish = () => { state.loading = false; const list = $('#msg-list'); if (list && state.conv === id) { refreshMessages(!opts.highlight, opts.highlight); if (opts.highlight) { const el = $('#msg-' + opts.highlight); if (el) el.scrollIntoView({ block: 'center' }); } } markRead(id); if (opts.focus !== false && window.innerWidth > 640) { const ta = $('#main .composer textarea'); if (ta && !ta.disabled) ta.focus({ preventScroll: true }); } };
-    if (state.loading) loadTimer = setTimeout(finish, state.prefs.reduceMotion ? 150 : 600); else finish();
+    const ready = LIVE ? ensureHistory(id) : null;
+    const go = () => { if (ready) ready.then(finish, finish); else finish(); };
+    if (state.loading) loadTimer = setTimeout(go, state.prefs.reduceMotion ? 150 : 600); else go();
   }
-  function markRead(id) { const l = msgs(id); if (l.length) state.lastRead[id] = Math.max(state.lastRead[id] || 0, l[l.length - 1].ts); refreshSidebar(); }
+  function markRead(id) { if (!id) return; const l = msgs(id); if (l.length) { const last = l[l.length - 1]; const prev = state.lastRead[id] || 0; state.lastRead[id] = Math.max(prev, last.ts); if (LIVE && state.lastRead[id] > prev && last.slackTs) provider.markRead(id, last).catch(() => { /* read cursor is best-effort */ }); } refreshSidebar(); }
   function setView(v) {
     if (v === 'more') return;
     state.view = v;
     state.mobileConv = MORE_VIEWS.includes(v);
     state.sidebarOpen = false;
-    if (v === 'dms' && conv(state.conv).type !== 'dm') { const first = D.dms.slice().sort((a, b) => lastTs(b.id) - lastTs(a.id))[0]; state.conv = first.id; state.newDividerAt[first.id] = unreadCount(first.id) ? state.lastRead[first.id] : null; }
+    if (v === 'dms' && !(conv(state.conv) && conv(state.conv).type === 'dm')) { const first = D.dms.slice().sort((a, b) => lastTs(b.id) - lastTs(a.id))[0]; if (first) { state.conv = first.id; state.newDividerAt[first.id] = unreadCount(first.id) ? state.lastRead[first.id] : null; } }
     if (v === 'activity') { const items = activityItems(); if (items.length && !state.activitySel) { const a = items[0]; state.activitySel = a.type + ':' + a.m.id; state.conv = a.cid; state._highlight = a.m.id; } }
     if (v === 'later') { const items = laterItems().filter((x) => x.st === state.laterTab); if (items.length && !state.laterSel) { state.laterSel = items[0].m.id; state.conv = items[0].cid; state._highlight = items[0].m.id; } }
     renderAll();
@@ -1266,12 +1280,19 @@
   }
   function toggleReaction(msgId, emoji) {
     const f = findMsg(msgId); if (!f) return;
-    const m = f.msg; let r = m.reactions.find((x) => x.emoji === emoji);
-    if (!r) { r = { emoji, users: [] }; m.reactions.push(r); }
-    const i = r.users.indexOf(D.me);
-    if (i >= 0) r.users.splice(i, 1); else { r.users.push(D.me); const n = emojiName(emoji); if (n) bumpFrequent(n); }
-    m.reactions = m.reactions.filter((x) => x.users.length);
+    const m = f.msg;
+    const cur = m.reactions.find((x) => x.emoji === emoji);
+    const added = !(cur && cur.users.includes(D.me));
+    setReaction(m, emoji, D.me, added);
+    if (added) { const n = emojiName(emoji); if (n) bumpFrequent(n); }
     refreshMessages(); renderRPanel();
+    if (LIVE) provider[added ? 'addReaction' : 'removeReaction'](f.convId, m, emoji).catch((err) => { setReaction(m, emoji, D.me, !added); refreshMessages(); renderRPanel(); liveFail('Could not ' + (added ? 'add' : 'remove') + ' reaction', err); });
+  }
+  function setReaction(m, emoji, userId, on) {
+    let r = m.reactions.find((x) => x.emoji === emoji);
+    if (on) { if (!r) { r = { emoji, users: [] }; m.reactions.push(r); } if (!r.users.includes(userId)) r.users.push(userId); }
+    else if (r) r.users = r.users.filter((u) => u !== userId);
+    m.reactions = m.reactions.filter((x) => x.users.length);
   }
 
   /* ------------------------------------------------------------------
@@ -1338,7 +1359,7 @@
     setTimeout(() => { state.typing = null; const t = $('#typing'); if (t) t.innerHTML = ''; }, ms);
   }
   function simulateReply(convId, m) {
-    if (convId !== 'c_general') return;
+    if (!provider.simulated || convId !== 'c_general') return;
     const who = ['u1', 'u2', 'u4', 'u3'][Math.floor(Math.random() * 4)];
     setTimeout(() => { if (state.conv === convId && state.prefs.typing) showTyping(user(who).name.split(' ')[0], 2000); }, 1500);
     setTimeout(() => {
@@ -1363,7 +1384,7 @@
     'toggle-unreads': () => { state.unreadsOnly = !state.unreadsOnly; closePopovers(); renderSidebar(); },
     'open-threads': () => { closePopovers(); openPanel({ type: 'threads' }); },
     'drafts': () => { const keys = Object.keys(state.drafts).filter((k) => state.drafts[k] && state.drafts[k].trim()); popover($('#sidebar .sb-header'), '<div class="menu-label">Drafts</div>' + (keys.length ? keys.map((k) => { const cid = k.replace(/^thread:/, ''); const c = conv(cid) || conv(state.conv); return menuItem('open', esc(c ? convName(c) : k), 'compose', { data: { conv: c ? c.id : state.conv }, sub: state.drafts[k].slice(0, 60) }); }).join('') : '<div class="sb-empty" style="color:var(--text-2)">No drafts</div>'), { align: 'start' }); },
-    'ws-menu': (el) => { popover(el, '<div class="menu-head"><span class="avatar sz-36" style="background:' + D.workspace.color + ';border-radius:8px">' + esc(D.workspace.initials) + '</span><div><div class="mh-name">' + esc(D.workspace.name) + '</div><div class="mh-sub">' + esc(D.workspace.domain) + '</div></div></div><div class="menu-sep"></div>' + menuItem('add-teammates', 'Invite people to ' + esc(D.workspace.name), 'userPlus') + menuItem('add-channel', 'Create a channel', 'hash') + '<div class="menu-sep"></div>' + menuItem('preferences', 'Preferences', 'settings', { kbd: MOD + ' ,' }) + menuItem('toast', 'Tools &amp; settings', 'sliders', { data: { text: 'Admin tools open in the browser' }, chev: true }) + '<div class="menu-sep"></div>' + menuItem('toast', 'Sign in to another workspace', 'plus', { data: { text: 'Sign-in flow is not part of the demo' } }) + menuItem('sign-out', 'Sign out of ' + esc(D.workspace.name), 'logout'), { align: 'start' }); },
+    'ws-menu': (el) => { popover(el, '<div class="menu-head"><span class="avatar sz-36" style="background:' + D.workspace.color + ';border-radius:8px">' + esc(D.workspace.initials) + '</span><div><div class="mh-name">' + esc(D.workspace.name) + '</div><div class="mh-sub">' + esc(D.workspace.domain) + '</div></div></div><div class="menu-sep"></div>' + menuItem('add-teammates', 'Invite people to ' + esc(D.workspace.name), 'userPlus') + menuItem('add-channel', 'Create a channel', 'hash') + '<div class="menu-sep"></div>' + menuItem('preferences', 'Preferences', 'settings', { kbd: MOD + ' ,' }) + menuItem('data-source', 'Data source', 'sliders', { sub: LIVE ? 'Live Slack via bridge' : 'Seeded demo data' }) + menuItem('toast', 'Tools &amp; settings', 'sliders', { data: { text: 'Admin tools open in the browser' }, chev: true }) + '<div class="menu-sep"></div>' + menuItem('toast', 'Sign in to another workspace', 'plus', { data: { text: 'Sign-in flow is not part of the demo' } }) + menuItem('sign-out', 'Sign out of ' + esc(D.workspace.name), 'logout'), { align: 'start' }); },
     'switch-ws': (el) => toast('Switching workspaces is not available in this demo'),
     'add-ws': () => toast('Add a workspace: not available in this demo'),
     'new-message': () => { closePopovers(); quickSwitcher('@'); },
@@ -1424,8 +1445,8 @@
     'pin': (el) => { const f = findMsg(el.dataset.msg); closePopovers(); f.msg.pinned = !f.msg.pinned; f.msg.pinnedBy = D.me; refreshMessages(); renderMain(); toast(f.msg.pinned ? 'Pinned to channel' : 'Unpinned', { icon: 'pin' }); },
     'edit': (el) => { closePopovers(); startEdit(el.dataset.msg); },
     'edit-cancel': () => { state.editing = null; refreshMessages(); },
-    'edit-save': (el) => { const f = findMsg(el.dataset.msg); const ta = $('#msg-editor textarea'); if (!f || !ta) return; const v = ta.value.trim(); if (v && v !== f.msg.text) { f.msg.text = v; f.msg.edited = true; } state.editing = null; refreshMessages(); renderRPanel(); },
-    'delete': (el) => { closePopovers(); const f = findMsg(el.dataset.msg); confirmModal('Delete message', 'Are you sure you want to delete this message? This cannot be undone.<div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:8px 8px 8px 0">' + renderMessage(f.msg, { convId: f.convId, forceHead: true, inThread: true }).replace(/<div class="msg-actions".*$/, '</div>') + '</div>', 'Delete', () => { if (f.parent) f.parent.replies = f.parent.replies.filter((r) => r.id !== f.msg.id); else D.messages[f.convId] = D.messages[f.convId].filter((x) => x.id !== f.msg.id); refreshMessages(); renderRPanel(); refreshSidebar(); toast('Message deleted', { icon: 'trash' }); }, true); },
+    'edit-save': (el) => { const f = findMsg(el.dataset.msg); const ta = $('#msg-editor textarea'); if (!f || !ta) return; const v = ta.value.trim(); if (v && v !== f.msg.text) { const prevText = f.msg.text; f.msg.text = v; f.msg.edited = true; if (LIVE) provider.editMessage(f.convId, f.msg, v).catch((err) => { f.msg.text = prevText; refreshMessages(); renderRPanel(); liveFail('Edit not saved', err); }); } state.editing = null; refreshMessages(); renderRPanel(); },
+    'delete': (el) => { closePopovers(); const f = findMsg(el.dataset.msg); confirmModal('Delete message', 'Are you sure you want to delete this message? This cannot be undone.<div style="margin-top:12px;border:1px solid var(--border);border-radius:8px;padding:8px 8px 8px 0">' + renderMessage(f.msg, { convId: f.convId, forceHead: true, inThread: true }).replace(/<div class="msg-actions".*$/, '</div>') + '</div>', 'Delete', () => { if (f.parent) f.parent.replies = f.parent.replies.filter((r) => r.id !== f.msg.id); else D.messages[f.convId] = D.messages[f.convId].filter((x) => x.id !== f.msg.id); refreshMessages(); renderRPanel(); refreshSidebar(); toast('Message deleted', { icon: 'trash' }); if (LIVE) provider.deleteMessage(f.convId, f.msg).catch((err) => liveFail('Message not deleted on Slack', err)); }, true); },
     'vote': (el) => { const f = findMsg(el.dataset.msg); const poll = f.msg.attachments.find((a) => a.type === 'poll'); poll.options.forEach((o, i) => { const k = o.votes.indexOf(D.me); if (i === +el.dataset.opt) { if (k >= 0) o.votes.splice(k, 1); else o.votes.push(D.me); } else if (k >= 0) o.votes.splice(k, 1); }); refreshMessages(); },
     'view-image': (el) => { const f = findMsg(el.dataset.msg); const a = f.msg.attachments.find((x) => x.name === el.dataset.name); modal('<div class="modal-head" style="padding:12px 16px"><h2 style="font-size:15px">' + avatar(user(f.msg.user), 24, { click: false }) + '<span>' + esc(a.name) + '</span><span class="muted-text" style="font-weight:400">' + esc(a.size || '') + '</span></h2><button class="icon-btn" data-act="toast" data-text="Downloading…" data-tip="Download" aria-label="Download">' + I('download', 20) + '</button><button class="modal-close" data-act="modal-close" aria-label="Close">' + I('close', 20) + '</button></div><div style="background:' + a.gradient + ';width:min(90vw,' + Math.max(a.w * 2, 600) + 'px);aspect-ratio:' + a.w + '/' + a.h + ';display:flex;align-items:center;justify-content:center;color:rgba(0,0,0,.35)">' + I('image', 48) + '</div>', { cls: 'wide', label: a.name }); },
     'open-file': (el) => toast('Opening ' + el.dataset.name + '…', { icon: 'files' }),
@@ -1566,16 +1587,217 @@
   /* ------------------------------------------------------------------
      Init
   ------------------------------------------------------------------ */
+  /* ------------------------------------------------------------------
+     Live mode (bridge): bootstrap, lazy loading, inbound events, settings UI
+  ------------------------------------------------------------------ */
+  const liveLoaded = {};
+  const CONN_LABEL = { seeded: 'Seeded demo data', connecting: 'Connecting to bridge…', live: 'Live', error: 'Bridge error' };
+  function connState() { return LIVE ? (state.conn || 'connecting') : 'seeded'; }
+  function renderConnStatusHtml() {
+    const st = connState();
+    const label = st === 'live' ? 'Live · ' + D.workspace.name : CONN_LABEL[st] || st;
+    return '<button class="sb-conn ' + st + '" id="sb-conn" data-act="data-source" data-tip="Data source settings" aria-label="Data source: ' + attr(label) + '"><span class="conn-dot" aria-hidden="true"></span><span class="conn-label">' + esc(label) + '</span></button>';
+  }
+  function renderConnStatus() { const el = $('#sb-conn'); if (el) el.outerHTML = renderConnStatusHtml(); if (!conv(state.conv)) renderMain(); }
+  function renderEmptyState() {
+    const st = connState();
+    if (st === 'connecting') return '<h3>Connecting to Slack…</h3><p>via the bridge at ' + esc(PROVIDERS ? PROVIDERS.readSettings().bridge : '') + '</p>';
+    if (st === 'error') return '<h3>Could not connect to the bridge</h3><p>' + esc((state.connError && state.connError.message) || 'Unknown error') + '</p><p style="margin-top:16px"><button class="btn primary" data-act="data-source">Data source settings</button></p>';
+    return '<h3>Select a conversation</h3>';
+  }
+  function liveFail(what, err) { console.warn('[slack-shell] ' + what, err); toast(what + (err && err.message ? ': ' + err.message : ''), { icon: 'bellOff', ms: 4000 }); }
+  function absorbMessage(m) { if (m && m.botProfile && !D.users[m.user]) D.users[m.user] = m.botProfile; if (m && m.user && !D.users[m.user]) D.users[m.user] = { id: m.user, name: m.user, initials: '?', color: '#616061', presence: 'none' }; }
+  function findByTs(convId, ts) {
+    for (const m of msgs(convId)) { if (m.slackTs === ts) return { msg: m, convId }; for (const r of m.replies) if (r.slackTs === ts) return { msg: r, convId, parent: m }; }
+    return null;
+  }
+  function replaceWorkspace(ws) {
+    D.workspace = ws.workspace; D.me = ws.me; D.users = ws.users; D.otherWorkspaces = [];
+    D.channels.length = 0; ws.channels.forEach((c) => D.channels.push(c));
+    D.dms.length = 0; ws.dms.forEach((c) => D.dms.push(c));
+    D.messages = {}; D.lastRead = ws.lastRead || {};
+    D.canvases = []; D.workflows = []; D.externalConnections = [];
+    state.lastRead = Object.assign({}, D.lastRead); state.newDividerAt = {}; state.starred = {}; state.muted = {};
+    D.channels.forEach((c) => { state.starred[c.id] = !!c.starred; state.muted[c.id] = !!c.muted; });
+    Object.keys(liveLoaded).forEach((k) => delete liveLoaded[k]);
+    document.title = D.workspace.name + ' - Slack';
+  }
+  function ensureHistory(id) {
+    if (liveLoaded[id]) return liveLoaded[id];
+    liveLoaded[id] = provider.loadHistory(id).then((res) => {
+      const existing = msgs(id);
+      const byId = {}; res.messages.forEach((m) => { byId[m.id] = m; absorbMessage(m); });
+      D.messages[id] = res.messages.concat(existing.filter((e) => !byId[e.id])).sort((a, b) => a.ts - b.ts);
+      if (res.lastRead) state.lastRead[id] = Math.max(state.lastRead[id] || 0, res.lastRead);
+      const c = conv(id); if (c && res.members && res.members.length) c.members = res.members;
+      if (state.conv === id) state.newDividerAt[id] = unreadCount(id) ? state.lastRead[id] : null;
+      refreshSidebar();
+    }).catch((err) => { delete liveLoaded[id]; liveFail('Could not load messages', err); });
+    return liveLoaded[id];
+  }
+  function ensureThread(convId, msgId) {
+    const f = findMsg(msgId); if (!f || f.parent) return;
+    const m = f.msg;
+    if (m.repliesLoaded || !m.slackTs || !(m.replyCount > m.replies.length)) return;
+    provider.loadThread(convId, m).then((replies) => {
+      const byId = {}; replies.forEach((r) => { byId[r.id] = r; absorbMessage(r); });
+      m.replies = replies.concat(m.replies.filter((r) => !byId[r.id])).sort((a, b) => a.ts - b.ts);
+      m.replyCount = m.replies.length; m.repliesLoaded = true;
+      if (state.rpanel && state.rpanel.type === 'thread' && state.rpanel.msgId === m.id) renderRPanel();
+      if (state.conv === convId) refreshMessages();
+    }).catch((err) => liveFail('Could not load thread', err));
+  }
+  function liveSend(convId, m, opts) {
+    opts = opts || {};
+    provider.sendMessage(convId, m.text, { threadTs: opts.parent ? opts.parent.slackTs || null : null, broadcast: !!opts.broadcast }).then((res) => {
+      if (!res || !res.ts) return;
+      const list = opts.parent ? opts.parent.replies : msgs(convId);
+      const id = provider.adapter.idFromTs(res.ts);
+      const dup = list.find((x) => x !== m && x.id === id);
+      if (dup) { const i = list.indexOf(m); if (i >= 0) list.splice(i, 1); }
+      else { m.id = id; m.slackTs = res.ts; m.ts = provider.adapter.tsToMs(res.ts); delete m.pending; list.sort((a, b) => a.ts - b.ts); }
+      if (!opts.parent) state.lastRead[convId] = Math.max(state.lastRead[convId] || 0, m.ts);
+      refreshMessages(); renderRPanel();
+    }).catch((err) => {
+      if (opts.parent) opts.parent.replies = opts.parent.replies.filter((r) => r !== m); else D.messages[convId] = msgs(convId).filter((x) => x !== m);
+      refreshMessages(); renderRPanel(); refreshSidebar();
+      liveFail('Message not sent', err);
+    });
+  }
+  let discoverTimer = null;
+  function liveDiscover() {
+    clearTimeout(discoverTimer);
+    discoverTimer = setTimeout(() => {
+      provider.loadWorkspace().then((ws) => {
+        let added = false;
+        ws.channels.concat(ws.dms).forEach((c) => { if (!conv(c.id)) { (c.type === 'dm' ? D.dms : D.channels).push(c); state.lastRead[c.id] = 0; added = true; } });
+        Object.keys(ws.users).forEach((id) => { if (!D.users[id]) D.users[id] = ws.users[id]; });
+        if (added) refreshSidebar();
+      }).catch(() => { /* ignore */ });
+    }, 1500);
+  }
+  function handleLiveEvent(ev) {
+    const cid = ev.convId;
+    switch (ev.type) {
+      case 'message': {
+        if (!conv(cid)) { liveDiscover(); return; }
+        const m = ev.message; absorbMessage(m);
+        if (ev.threadTs) {
+          const parent = msgs(cid).find((x) => x.slackTs === ev.threadTs);
+          if (parent) {
+            if (!parent.replies.some((r) => r.id === m.id)) {
+              const pend = parent.replies.find((r) => r.pending && r.user === D.me && r.text === m.text);
+              if (pend) { Object.assign(pend, m); delete pend.pending; } else parent.replies.push(m);
+              parent.replies.sort((a, b) => a.ts - b.ts);
+              parent.replyCount = parent.replies.length; parent.latestReply = m.ts;
+              parent.replyUsers = parent.replyUsers || []; if (!parent.replyUsers.includes(m.user)) parent.replyUsers.push(m.user);
+            }
+            if (state.rpanel && state.rpanel.type === 'thread' && state.rpanel.msgId === parent.id) renderRPanel();
+          }
+          if (!ev.broadcast) { if (cid === state.conv) refreshMessages(); if (m.user !== D.me && parent) announce(user(m.user).name + ' replied in a thread'); return; }
+        }
+        const list = msgs(cid);
+        if (!list.some((x) => x.id === m.id)) {
+          const pend = list.find((x) => x.pending && x.user === D.me && x.text === m.text);
+          if (pend) { Object.assign(pend, m); delete pend.pending; } else list.push(m);
+          list.sort((a, b) => a.ts - b.ts);
+        }
+        if (m.user === D.me) state.lastRead[cid] = Math.max(state.lastRead[cid] || 0, m.ts);
+        if (cid === state.conv) { state.typing = null; const t = $('#typing'); if (t) t.innerHTML = ''; refreshMessages(); if (document.hasFocus()) markRead(cid); else refreshSidebar(); }
+        else refreshSidebar();
+        if (m.user !== D.me) {
+          const c = conv(cid); const who = user(m.user).name;
+          announce('New message from ' + who + (c.type === 'channel' ? ' in #' + c.name : ''));
+          if (mentionsMe(m) && !state.paused && state.prefs.notifyAll !== 'none' && cid !== state.conv) toast(who + ' mentioned you' + (c.type === 'channel' ? ' in #' + c.name : ''), { icon: 'bell', action: { label: 'View', act: 'open-' + cid } });
+        }
+        return;
+      }
+      case 'message_changed': {
+        const f = findByTs(cid, ev.ts); if (!f || !ev.message) return;
+        f.msg.text = ev.message.text; f.msg.edited = ev.message.edited || f.msg.edited; f.msg.attachments = ev.message.attachments;
+        if (cid === state.conv) refreshMessages(); renderRPanel(); return;
+      }
+      case 'message_deleted': {
+        const f = findByTs(cid, ev.ts); if (!f) return;
+        if (f.parent) { f.parent.replies = f.parent.replies.filter((r) => r !== f.msg); f.parent.replyCount = f.parent.replies.length; }
+        else D.messages[cid] = msgs(cid).filter((x) => x !== f.msg);
+        if (cid === state.conv) refreshMessages(); renderRPanel(); refreshSidebar(); return;
+      }
+      case 'reaction_added':
+      case 'reaction_removed': {
+        const f = findByTs(cid, ev.ts); if (!f) return;
+        setReaction(f.msg, ev.emoji, ev.user, ev.type === 'reaction_added');
+        if (cid === state.conv) refreshMessages(); if (state.rpanel && state.rpanel.type === 'thread') renderRPanel(); return;
+      }
+      case 'user_typing': if (cid === state.conv && ev.user !== D.me && state.prefs.typing) showTyping(user(ev.user).name.split(' ')[0], 3000); return;
+      case 'channel_created': if (ev.channel && ev.channel.id && !conv(ev.channel.id)) { D.channels.push(ev.channel); D.channels.sort((a, b) => a.name.localeCompare(b.name)); state.lastRead[ev.channel.id] = Date.now(); refreshSidebar(); } return;
+      case 'channel_rename': { const c = conv(cid); if (c && ev.name) { c.name = ev.name; refreshSidebar(); if (cid === state.conv) renderMain(); } return; }
+      case 'member_joined': { const c = conv(cid); if (c && !c.members.includes(ev.user)) { c.members.push(ev.user); if (cid === state.conv) renderMain(); } return; }
+      case 'member_left': { const c = conv(cid); if (c) { c.members = c.members.filter((u) => u !== ev.user); if (cid === state.conv) renderMain(); } return; }
+      case 'user_change': if (ev.user && ev.user.id) { D.users[ev.user.id] = Object.assign(D.users[ev.user.id] || {}, ev.user); refreshSidebar(); if (state.rpanel) renderRPanel(); } return;
+      case 'presence_change': if (D.users[ev.user]) { D.users[ev.user].presence = ev.presence; refreshSidebar(); } return;
+      case 'marked': if (conv(cid)) { state.lastRead[cid] = Math.max(state.lastRead[cid] || 0, ev.ts); refreshSidebar(); } return;
+      case 'dm_created': if (ev.dm && ev.dm.id && !conv(ev.dm.id)) { D.dms.push(ev.dm); state.lastRead[ev.dm.id] = Date.now(); refreshSidebar(); } return;
+      default: return;
+    }
+  }
+  function openDataSourceModal(opts) {
+    opts = opts || {};
+    const s = PROVIDERS ? PROVIDERS.readSettings() : { mode: 'seeded', bridge: '', secret: '' };
+    const st = connState();
+    modal(modalHead('Data source') + '<div class="modal-body">' +
+      (opts.needSecret ? '<p class="ds-warn">' + I('shield', 16) + '<span>The bridge asked for its shared secret (<code>BRIDGE_SHARED_SECRET</code>). Enter it below; it is kept only in this browser.</span></p>' : '') +
+      '<div class="field-row"><label><input type="radio" name="ds-mode" value="seeded"' + (s.mode !== 'live' ? ' checked' : '') + '><span><span class="fr-label">Seeded demo data</span><span class="fr-sub" style="display:block">The built-in “Playset” workspace. Nothing leaves the browser.</span></span></label></div>' +
+      '<div class="field-row"><label><input type="radio" name="ds-mode" value="live"' + (s.mode === 'live' ? ' checked' : '') + '><span><span class="fr-label">Live Slack via bridge</span><span class="fr-sub" style="display:block">Reads and writes a real workspace through the bridge service (see docs/LIVE_DATA.md).</span></span></label></div>' +
+      '<label class="muted-text" for="ds-bridge" style="display:block;margin:12px 0 6px">Bridge URL</label><input class="text-input" id="ds-bridge" value="' + attr(s.bridge) + '" placeholder="http://localhost:8787" autocomplete="off" spellcheck="false">' +
+      '<label class="muted-text" for="ds-secret" style="display:block;margin:12px 0 6px">Shared secret</label><input class="text-input" id="ds-secret" type="password" value="' + attr(s.secret) + '" placeholder="BRIDGE_SHARED_SECRET" autocomplete="off">' +
+      '<p class="muted" style="margin-top:12px">Status: <b>' + esc(CONN_LABEL[st] || st) + '</b>' + (st === 'error' && state.connError && state.connError.message ? ' — ' + esc(state.connError.message) : '') + '. Saved in this browser only; <code>?live=1&amp;bridge=…</code> in the URL overrides it for one visit.</p>' +
+      '</div><div class="modal-foot"><button class="btn outline" data-act="modal-close">Cancel</button><button class="btn primary" id="ds-save">Save &amp; reload</button></div>', { cls: 'sm', label: 'Data source', init(box, m) {
+        $('#ds-save', box).addEventListener('click', () => {
+          const mode = ($('input[name="ds-mode"]:checked', box) || {}).value || 'seeded';
+          if (PROVIDERS) PROVIDERS.saveSettings({ mode, bridge: $('#ds-bridge', box).value.trim() || PROVIDERS.DEFAULT_BRIDGE, secret: $('#ds-secret', box).value });
+          closeModal(m);
+          location.href = location.pathname + location.hash; // drop ?live / ?bridge overrides so the saved choice wins
+        });
+        if (opts.needSecret) setTimeout(() => $('#ds-secret', box).focus(), 20);
+      } });
+  }
+  actions['data-source'] = () => { closePopovers(); openDataSourceModal(); };
+  function startLive() {
+    // Blank the seeded workspace; the bridge fills it in.
+    replaceWorkspace({ workspace: { id: 'live', name: 'Slack', domain: '', initials: 'S', color: '#611F69', plan: '' }, me: 'me', users: { me: { id: 'me', name: 'You', initials: 'Y', color: '#4A154B', presence: 'active', status: null } }, channels: [], dms: [], lastRead: {} });
+    state.conv = null; state.history = []; state.histIdx = -1; state.conn = 'connecting'; state.connError = null;
+    renderAll();
+    provider.onStatus((s) => {
+      state.conn = s.status; state.connError = s.error; renderConnStatus();
+      if (s.status === 'error' && s.error && s.error.code === 'unauthorized' && !modals.length) openDataSourceModal({ needSecret: true });
+    });
+    provider.onEvent(handleLiveEvent);
+    provider.loadWorkspace().then((ws) => {
+      replaceWorkspace(ws);
+      const first = D.channels.find((c) => c.name === 'general') || D.channels[0] || D.dms[0];
+      provider.connect();
+      renderAll();
+      if (first) openConv(first.id);
+      toast('Connected to ' + D.workspace.name, { icon: 'zap' });
+    }).catch((err) => {
+      state.conn = 'error'; state.connError = err; renderAll();
+      if (err && err.code === 'unauthorized') openDataSourceModal({ needSecret: true });
+      else toast('Bridge: ' + (err && err.message ? err.message : 'connection failed'), { icon: 'bellOff', ms: 6000, action: { label: 'Settings', act: 'data-source' } });
+    });
+  }
+
   function init() {
     if (state.sidebarTheme && state.sidebarTheme !== 'default') document.documentElement.setAttribute('data-sidebar', state.sidebarTheme);
-    state.newDividerAt.c_general = unreadCount('c_general') ? state.lastRead.c_general : null;
     state.mobileConv = false;
+    window.SlackShell = { state, data: D, provider, openConv, setView, toast, setTheme, actions };
+    if (LIVE) { startLive(); return; }
+    state.newDividerAt.c_general = unreadCount('c_general') ? state.lastRead.c_general : null;
     renderAll();
     refreshMessages(true);
     markRead('c_general');
-    scheduleSim(); scheduleTyping();
+    if (provider.simulated) { scheduleSim(); scheduleTyping(); }
     setInterval(() => { $$('.thread-foot .last-reply').forEach(() => {}); }, 60000);
-    window.SlackShell = { state, data: D, openConv, setView, toast, setTheme, actions };
   }
   init();
 })();
